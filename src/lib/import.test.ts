@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   convertFileToHtml,
   getExtension,
+  hasZipSignature,
   isSupportedExtension,
   markdownToHtml,
   plainTextToHtml,
@@ -103,6 +104,20 @@ describe("file helpers", () => {
     await expect(
       convertFileToHtml("malware.exe", Buffer.from("MZ")),
     ).rejects.toThrow(/Unsupported file type/);
+  });
+
+  it("recognizes the ZIP signatures a .docx must start with", () => {
+    expect(hasZipSignature(Buffer.from([0x50, 0x4b, 0x03, 0x04]))).toBe(true);
+    expect(hasZipSignature(Buffer.from("PK\u0005\u0006"))).toBe(true);
+    expect(hasZipSignature(Buffer.from("MZ\u0090\u0000"))).toBe(false);
+    expect(hasZipSignature(Buffer.from("PK"))).toBe(false);
+    expect(hasZipSignature(Buffer.alloc(0))).toBe(false);
+  });
+
+  it("rejects a renamed non-ZIP file with a .docx extension", async () => {
+    await expect(
+      convertFileToHtml("renamed.docx", Buffer.from("MZ\u0090\u0000not a zip")),
+    ).rejects.toThrow(/ZIP/);
   });
 
   it("converts an uploaded .txt file to safe HTML", async () => {

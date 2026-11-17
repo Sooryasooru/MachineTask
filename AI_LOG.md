@@ -66,3 +66,14 @@ Working log kept during the build. Times are local (2026-11-17).
 
 - No Vercel or Neon credentials are available in this environment, and creating accounts on the user's behalf is not appropriate.
 - **Decision:** stop at a verified local build. Documented exact Vercel + Neon deployment steps, including `migrate deploy` and seeding against the production connection string. The live URL and video links remain for the user to produce.
+
+## Session 2 — security pass (same day, later)
+
+- Reviewed the first build against the brief's security expectations rather than its own tests. **Finding:** identity was a raw user id in an httpOnly cookie, and `/login` listed every seeded user with name and email. Anyone could forge the cookie. Fixed with DB-backed sessions (SHA-256 token hash), bcrypt cost 12, a database-persisted 5-failure/15-minute lockout, a shared password policy, and removal of the user picker.
+- Unknown email and wrong password now return the same message; unknown emails pay for a dummy bcrypt compare so timing doesn't leak existence.
+- Owner-only collaborator data; the invite endpoint always answers “If that account exists, access has been granted.” and returns the live collaborator list.
+- Added Origin checks on all mutations, security headers/CSP, and a ZIP signature check for `.docx`.
+- **False failure #1:** the smoke test's stranger check failed because a previous run had already shared the doc with Carol. Fresh account per run fixed it.
+- **False failure #2:** an inserted “expired” session used `psql` local time, which Prisma read as a future UTC timestamp. The app was correct; the test was not.
+- **Real finding:** with `loading.tsx` present, an anonymous `/` returned 200 + skeleton and redirected client-side. Added `src/proxy.ts` (Next 16's rename of `middleware`) for a true 307, keeping the DB check in pages.
+- Tests: added a database-backed suite against a derived `…_test` database. 62 tests pass; clean tsc/lint/build; 64-check HTTP smoke test passes.

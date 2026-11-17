@@ -11,7 +11,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { canEdit as canEditAccess } from "@/lib/access";
-import type { AccessLevel, ShareView } from "@/lib/types";
+import { countWords, formatLastEdited } from "@/lib/format";
+import type { AccessLevel, OwnerView, ShareView } from "@/lib/types";
+import ExportMenu from "./ExportMenu";
 import {
   AlertIcon,
   ArrowLeftIcon,
@@ -19,6 +21,7 @@ import {
   LockIcon,
 } from "./icons";
 import ShareDialog from "./ShareDialog";
+import { useToast } from "./ToastProvider";
 
 type SaveStatus = "idle" | "unsaved" | "saving" | "saved" | "error";
 
@@ -26,8 +29,9 @@ type DocumentEditorProps = {
   documentId: string;
   initialTitle: string;
   initialContent: string;
+  initialUpdatedAt: string;
   access: AccessLevel;
-  owner: { id: string; name: string; email: string };
+  owner: OwnerView;
   initialShares: ShareView[];
 };
 
@@ -123,7 +127,7 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
     <div
       role="toolbar"
       aria-label="Formatting"
-      className="flex flex-wrap items-center gap-1 border-b border-slate-100 px-3 py-2 sm:px-6"
+      className="flex flex-wrap items-center gap-1 border-b border-slate-100 px-3 py-2 sm:px-6 no-print"
     >
       <button
         type="button"
@@ -220,16 +224,20 @@ export default function DocumentEditor({
   documentId,
   initialTitle,
   initialContent,
+  initialUpdatedAt,
   access,
   owner,
   initialShares,
 }: DocumentEditorProps) {
   const editable = canEditAccess(access);
   const isOwner = access === "OWNER";
+  const { show } = useToast();
 
   const [title, setTitle] = useState(initialTitle);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [lastEdited, setLastEdited] = useState(initialUpdatedAt);
+  const [wordCount, setWordCount] = useState(0);
 
   const serverTitleRef = useRef(initialTitle);
   const pendingRef = useRef<{ title?: string; content?: string }>({});
@@ -259,7 +267,7 @@ export default function DocumentEditor({
             body: JSON.stringify(patch),
           });
           const body = (await response.json().catch(() => null)) as {
-            document?: { title: string };
+            document?: { title: string; updatedAt: string };
             error?: string;
           } | null;
 
@@ -269,6 +277,9 @@ export default function DocumentEditor({
 
           if (body?.document?.title) {
             serverTitleRef.current = body.document.title;
+          }
+          if (body?.document?.updatedAt) {
+            setLastEdited(body.document.updatedAt);
           }
 
           setSavedAt(
@@ -292,9 +303,13 @@ export default function DocumentEditor({
       savingRef.current = false;
     }
 
-    if (failed) setStatus("error");
-    else if (savedAny) setStatus("saved");
-  }, [documentId, editable]);
+    if (failed) {
+      setStatus("error");
+      show("Couldn't save. Your changes are kept — press Retry.", "error");
+    } else if (savedAny) {
+      setStatus("saved");
+    }
+  }, [documentId, editable, show]);
 
   const queueContent = useCallback(
     (html: string) => {
@@ -323,7 +338,12 @@ export default function DocumentEditor({
         "aria-multiline": "true",
       },
     },
-    onUpdate: ({ editor: instance }) => queueContent(instance.getHTML()),
+    onCreate: ({ editor: instance }) =>
+      setWordCount(countWords(instance.getText())),
+    onUpdate: ({ editor: instance }) => {
+      setWordCount(countWords(instance.getText()));
+      queueContent(instance.getHTML());
+    },
   });
 
   useEffect(() => {
@@ -331,6 +351,11 @@ export default function DocumentEditor({
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
+
+  // Document title in the browser tab, updated as the title changes.
+  useEffect(() => {
+    document.title = title.trim() ? `${title.trim()} · Ajaia Docs` : "Ajaia Docs";
+  }, [title]);
 
   useEffect(() => {
     function warnBeforeUnload(event: BeforeUnloadEvent) {
@@ -343,6 +368,39 @@ export default function DocumentEditor({
     window.addEventListener("beforeunload", warnBeforeUnload);
     return () => window.removeEventListener("beforeunload", warnBeforeUnload);
   }, [status]);
+
+  // Best-effort flush of the pending patch when the tab is hidden or closed.
+  // `keepalive` lets the request outlive the page.
+  useEffect(() => {
+    function flush() {
+      if (!editable) return;
+      const patch = pendingRef.current;
+      if (patch.title === undefined && patch.content === undefined) return;
+
+      pendingRef.current = {};
+      try {
+        void fetch(`/api/documents/${documentId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(patch),
+          keepalive: true,
+        });
+      } catch {
+        // Nothing actionable during unload.
+      }
+    }
+
+    function onVisibilityChange() {
+      if (document.visibilityState === "hidden") flush();
+    }
+
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [documentId, editable]);
 
   function commitTitle() {
     if (!editable) return;
@@ -368,7 +426,7 @@ export default function DocumentEditor({
 
   return (
     <>
-      <div className="border-b border-slate-200 bg-white">
+      <div className="border-b border-slate-200 bg-white no-print">
         <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 sm:px-6">
           <Link
             href="/"
@@ -378,7 +436,7 @@ export default function DocumentEditor({
             Documents
           </Link>
 
-          <div className="ml-auto flex items-center gap-2.5">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2 sm:gap-2.5">
             <span
               className={`rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${accessBadgeStyles[access]}`}
             >
@@ -400,11 +458,13 @@ export default function DocumentEditor({
               )}
             </span>
 
-            {isOwner ? (
+            <ExportMenu documentId={documentId} />
+
+            {isOwner && owner.email ? (
               <ShareDialog
                 documentId={documentId}
                 documentTitle={title}
-                owner={owner}
+                owner={{ name: owner.name, email: owner.email }}
                 initialShares={initialShares}
               />
             ) : null}
@@ -412,9 +472,9 @@ export default function DocumentEditor({
         </div>
       </div>
 
-      <main className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
+      <main className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8 print-canvas">
         {!editable ? (
-          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900 no-print">
             <LockIcon className="mt-0.5 h-4 w-4 shrink-0" />
             <p>
               <span className="font-semibold">View only.</span> {owner.name}{" "}
@@ -424,7 +484,7 @@ export default function DocumentEditor({
           </div>
         ) : null}
 
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm print-surface">
           <div className="px-6 pb-5 pt-7 sm:px-10 sm:pt-9">
             <label htmlFor="document-title" className="sr-only">
               Document title
@@ -443,16 +503,20 @@ export default function DocumentEditor({
                   }
                 }}
                 placeholder="Untitled document"
-                className="w-full rounded-md bg-transparent text-[26px] font-semibold leading-tight tracking-tight text-slate-900 outline-none placeholder:text-slate-300 focus-visible:bg-slate-50/70 focus-visible:ring-2 focus-visible:ring-blue-100 sm:text-[30px]"
+                className="w-full rounded-md bg-transparent text-[24px] font-semibold leading-tight tracking-tight text-slate-900 outline-none placeholder:text-slate-300 focus-visible:bg-slate-50/70 focus-visible:ring-2 focus-visible:ring-blue-100 sm:text-[30px]"
               />
             ) : (
-              <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-slate-900 sm:text-[30px]">
+              <h1 className="text-[24px] font-semibold leading-tight tracking-tight text-slate-900 sm:text-[30px]">
                 {title}
               </h1>
             )}
 
             <p className="mt-2 text-xs text-slate-500">
               {owner.name} · {accessLabels[access]} ·{" "}
+              {wordCount === 1 ? "1 word" : `${wordCount} words`} ·{" "}
+              {formatLastEdited(lastEdited)}
+            </p>
+            <p className="mt-1 text-xs text-slate-400 no-print">
               {editable ? "Autosaves as you type" : "Read only"}
             </p>
           </div>

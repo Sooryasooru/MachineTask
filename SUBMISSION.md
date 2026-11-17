@@ -5,6 +5,7 @@
 | Deliverable | Status |
 | --- | --- |
 | Working app (local) | ✅ Built and verified against Postgres |
+| Real authentication + DB-backed sessions | ✅ Implemented and tested |
 | Source code | ✅ This repository |
 | README | ✅ `README.md` |
 | Architecture note | ✅ `ARCHITECTURE.md` |
@@ -12,11 +13,11 @@
 | Live URL | ⛔ Not deployed — requires your Vercel + Neon accounts (steps in README) |
 | Video | ⛔ Not recorded — outline below; put the Loom URL in `video-link.txt` |
 
-**Local URL:** http://localhost:3000 (currently running via `npm run dev`).
+**Local URL:** http://localhost:3000 (start with `npm run dev`).
 
 ## Credentials
 
-Demo authentication only — pick a user on the login screen, no password.
+Every seeded account uses the demo password **`Ajaia-Demo-2026!`**.
 
 | User | Email | Suggested role |
 | --- | --- | --- |
@@ -24,118 +25,130 @@ Demo authentication only — pick a user on the login screen, no password.
 | Bob | `bob@ajaia.test` | Editor on the welcome document |
 | Carol | `carol@ajaia.test` | Unshared — use to verify 404 behaviour |
 
+You can also create a fresh account at `/signup`; the form shows a live checklist of the password rules.
+
 ## Three-minute reviewer walkthrough
 
-1. Open http://localhost:3000 → redirected to `/login`. Choose **Alice**.
-2. Open **Welcome to Ajaia Docs**. Edit a line (bold/italic/underline/H1/lists), rename the title, wait for “Saved”, then refresh — changes persist.
-3. Click **Share**, invite `carol@ajaia.test` as **Viewer**. Open the row's role dropdown to switch her to **Editor**, then back to Viewer, then remove her.
-4. Sign out, choose **Carol** (after sharing with her as Viewer): the document appears under **Shared with me** with `Owner: Alice` and a `Viewer` badge. Open it — read-only editor and “View only” banner, no toolbar or Share button.
-5. Sign out, choose **Alice**, click **Upload file**, import a `.md` or `.txt` file — a new editable document opens with the filename as its title.
-6. Create a new document and delete it from the dashboard (trash icon on hover) to see the owner-only delete path.
+1. Open the app → redirected to `/login`. Sign in as **Alice** with the demo password.
+2. Open **Welcome to Ajaia Docs**. Edit a line (bold/italic/underline/H1/lists), rename the title, wait for “Saved”, then refresh — changes persist. The tab title and “Last edited” time update.
+3. Click **Share**, invite `carol@ajaia.test` as **Viewer**. She appears in the list immediately. Change her role, then remove her.
+4. Sign out, sign in as **Carol** (after sharing as Viewer): the document appears under **Shared with me** with `Owner: Alice` and a `Viewer` badge — no email. Open it: read-only editor, “View only” banner, no toolbar, no Share button.
+5. Back as Alice, use **Export → Markdown** (downloads `Welcome-to-Ajaia-Docs.md`) and **Export → Print / Save as PDF**.
+6. Import a `.txt` or `.md` file from the dashboard; a new editable document opens with the filename as its title.
+7. Create a document and delete it — toast + styled confirm dialog.
+8. Try five wrong passwords on one account and observe the 15-minute lockout message.
 
-Direct API checks (optional):
+Optional API check for a viewer:
 
 ```bash
-# as Carol, after being granted Viewer
 curl -i -b cookies.txt -X PATCH http://localhost:3000/api/documents/<id> \
+  -H 'Origin: http://localhost:3000' \
   -H 'content-type: application/json' -d '{"title":"nope"}'   # 403
 ```
+
+Requests without an `Origin` header are rejected by design.
 
 ## Files included
 
 Configuration and project:
 
 - `package.json`, `package-lock.json` — dependencies, scripts, Prisma seed hook
-- `next.config.ts` — Node externals for mammoth, Tailwind Turbopack loader; Cache Components deliberately off
+- `next.config.ts` — security headers/CSP, Node externals for mammoth, Tailwind Turbopack loader
 - `tsconfig.json`, `eslint.config.mjs`, `vitest.config.ts`
+- `src/proxy.ts` — anonymous redirect (Next 16's replacement for `middleware`)
 - `.gitignore`, `.env.example` (`.env` is local-only and not committed)
 - `AGENTS.md` — version-matched Next.js agent instructions from the scaffold
 
 Database:
 
-- `prisma/schema.prisma` — User / Document / Share / Role
-- `prisma/migrations/…_init/migration.sql` — initial schema
-- `prisma/seed.ts` — idempotent demo users, welcome document and share
+- `prisma/schema.prisma` — User / Session / Document / Share
+- `prisma/migrations/…_init` and `…_auth_sessions`
+- `prisma/seed.ts` — idempotent demo users (with the demo password), welcome document and share
 
 Server libraries:
 
 - `src/lib/db.ts` — Prisma singleton
-- `src/lib/auth.ts` — demo cookie session, `getCurrentUser`, `requireUser`
-- `src/lib/access.ts` — pure `resolveAccess`, `canEdit`, `canManageSharing`
-- `src/lib/documents.ts` — `getAccess`, `listShares`
-- `src/lib/sanitize.ts` — allowlist sanitizer
-- `src/lib/import.ts` — txt/markdown/docx conversion
-- `src/lib/limits.ts` — upload limits shared with the client
-- `src/lib/validation.ts` — Zod schemas
-- `src/lib/api.ts` — JSON/error helpers
-- `src/lib/format.ts` — date, initials, role labels
-- `src/lib/types.ts` — shared serializable types
+- `src/lib/cookies.ts` — session cookie name (edge-safe)
+- `src/lib/session.ts` — token generation, SHA-256 hashing, create/resolve/delete
+- `src/lib/login.ts` — bcrypt login, lockout, dummy-hash timing, password hashing
+- `src/lib/password.ts` — shared policy + per-rule results
+- `src/lib/auth.ts` — `getCurrentUser`, `requireUser`
+- `src/lib/csrf.ts` — Origin/Host check
+- `src/lib/access.ts` — pure permission rules incl. `canExport`
+- `src/lib/documents.ts` — `getAccess`, owner-only `listShares`
+- `src/lib/sharing.ts` — non-enumerating grant
+- `src/lib/dto.ts` — public user/owner selects
+- `src/lib/export.ts` — Turndown conversion, safe filename
+- `src/lib/sanitize.ts`, `src/lib/import.ts` (incl. ZIP signature), `src/lib/limits.ts`
+- `src/lib/validation.ts`, `src/lib/api.ts`, `src/lib/format.ts`, `src/lib/types.ts`
 
 API routes:
 
-- `src/app/api/login/route.ts`, `src/app/api/logout/route.ts`
-- `src/app/api/documents/route.ts`
-- `src/app/api/documents/[id]/route.ts`
-- `src/app/api/documents/[id]/shares/route.ts`
-- `src/app/api/import/route.ts`
+- `src/app/api/signup`, `login`, `logout`
+- `src/app/api/documents` and `src/app/api/documents/[id]`
+- `src/app/api/documents/[id]/shares`
+- `src/app/api/documents/[id]/export`
+- `src/app/api/import`
 
 Pages and UI:
 
-- `src/app/layout.tsx`, `src/app/globals.css`
-- `src/app/page.tsx` — dashboard
-- `src/app/login/page.tsx`
-- `src/app/docs/[id]/page.tsx`
-- `src/app/not-found.tsx`
-- `src/components/AppHeader.tsx`, `LogoutButton.tsx`, `LoginForm.tsx`
-- `src/components/DashboardActions.tsx`, `DeleteDocumentButton.tsx`
-- `src/components/DocumentEditor.tsx` — TipTap, toolbar, autosave
-- `src/components/ShareDialog.tsx`
-- `src/components/icons.tsx`
+- `src/app/layout.tsx`, `globals.css` (focus rings, print styles)
+- `src/app/page.tsx` — dashboard, `loading.tsx` skeleton
+- `src/app/login/page.tsx`, `src/app/signup/page.tsx`
+- `src/app/docs/[id]/page.tsx` + `loading.tsx`
+- `src/app/not-found.tsx`, `src/app/error.tsx`
+- `src/components/`: `AppHeader`, `LogoutButton`, `LoginForm`, `SignupForm`, `PasswordChecklist`, `ToastProvider`, `ConfirmDialog`, `DashboardActions`, `DeleteDocumentButton`, `DocumentEditor`, `ExportMenu`, `ShareDialog`, `icons`
 
 Tests and docs:
 
-- `src/lib/access.test.ts` (9 tests)
-- `src/lib/import.test.ts` (16 tests)
+- `src/lib/access.test.ts`, `import.test.ts`, `password.test.ts`, `security.test.ts`, `auth.test.ts` (62 tests)
+- `src/test/` — Vitest DB setup and `server-only` stub
 - `README.md`, `ARCHITECTURE.md`, `AI_WORKFLOW.md`, `AI_LOG.md`, `SUBMISSION.md`, `video-link.txt`
 
 ## What works (verified)
 
-- Demo login/logout, session cookie, redirect preservation via `?next=`.
-- Create, read, update, delete documents; owner-only delete.
-- Title and content validation (Zod): empty title, >200 chars, empty patch, malformed JSON.
-- Autosave debounce with Saving/Saved/Error + Retry; pending edits drained after an in-flight save.
-- Viewer read-only page; no toolbar, no Share button.
-- Permission matrix: owner, editor, viewer, stranger (404), plus 403s on edit/share/delete for insufficient roles.
-- Sharing: invite, role upsert, revoke, self-share 400, unknown email 404, invalid role 400.
-- Import: `.txt` escaped and paragraphized, `.md` converted, `.docx` via mammoth (converter code path unit-tested; no sample `.docx` fixture was uploaded), unsupported type 400, >2 MB 413.
-- XSS: `<script>` and `onclick` stripped on save; scripts dropped from markdown/text imports; `javascript:` links dropped.
-- 25 Vitest unit tests, clean TypeScript, clean ESLint, successful `next build`, 53/53 HTTP smoke checks.
+Verified by `npx tsc --noEmit`, `npm run lint`, `npm test` (62 tests) and `npm run build`, plus a scripted 64-check HTTP smoke test against the dev server:
+
+- Signup with policy enforcement, password login, logout; generic error for both unknown email and wrong password.
+- Session cookie is `httpOnly`, `SameSite=Lax`, `Path=/`, 7-day; forged user-id cookie → 401; expired session → 401; logout invalidates that session only.
+- Lockout: five failures → 429; correct password while locked → 429; after expiry → success with counters reset.
+- Owner sees collaborator emails; editor/viewer responses and pages contain neither collaborator nor owner emails.
+- No `passwordHash` in any inspected response (also asserted by a test).
+- Permission matrix: owner CRUD, editor edit, viewer 403 on writes, stranger 404 on read/export.
+- Export: 200 for owner/editor/viewer with `Content-Disposition: attachment`, 404 for a stranger.
+- Share: identical generic response for unknown and known emails, accurate collaborator list, self-share 400.
+- Cross-origin POST/PATCH → 403; missing `Origin` → 403.
+- Security headers present on HTML responses (CSP, DENY, nosniff, referrer policy).
+- Login page no longer lists seeded users.
+- Upload: `.docx` without a ZIP signature → 400; `.txt` import → 201.
+- 25 original tests still pass (now 62 in total with the new suites).
 
 ## What is incomplete or unverified
 
-- **No deployment.** No Vercel/Neon credentials were available; creating accounts wasn't appropriate. The app is ready for the documented deploy steps.
-- **No video.** The 3–5 minute outline is below; record it and update `video-link.txt`.
-- **No browser click-through.** I did not manually click the UI, verify hydration visually, or test drag-selection formatting. Server-rendered HTML for the viewer and dashboard was checked, and the APIs were exercised over HTTP, but the interactive editor was not driven in a browser.
-- **No E2E/Playwright suite.** The HTTP smoke test was a one-off script (not committed) so it isn't repeatable in CI.
-- **Autosave is last-write-wins.** Simultaneous editors can overwrite each other; there is no presence, comments or history.
-- **Mock auth is insecure.** Unsigned httpOnly cookie; documented in the UI and README.
-- **`.docx` tables and images are dropped** because the editor schema doesn't support them.
-- No pagination or search; delete is permanent; 1 MB document content limit.
+- **No deployment.** No Vercel/Neon credentials were available; the deploy steps are in the README.
+- **No video.** Outline below; record it and update `video-link.txt`.
+- **No browser click-through.** The UI was compiled, server-rendered HTML was inspected, and every API path was exercised over HTTP, but no one has clicked through the interface. Specifically unverified: TipTap toolbar behaviour under the new CSP, toast animations, the share modal focus flow, print layout, and the 375 px layout.
+- **Lockout is per account, not per IP**, and its message can reveal that an account exists (documented tradeoff).
+- No OAuth, email verification or password reset.
+- Autosave is last-write-wins; no presence, comments or history.
+- `.docx` tables and images are dropped.
+- The dev-only CSP adds `'unsafe-eval'` for HMR; production uses `'unsafe-inline'` only.
+- No E2E/Playwright suite. The HTTP smoke test was a throwaway script, not committed.
 
 ## With 2–4 more hours
 
-1. **Optimistic concurrency** (`revision` column + `If-Match`) and a lightweight version list, so autosave can't silently clobber another editor.
-2. **Real authentication** (OAuth via a provider) without changing the `User`/`Share` model, and a CSRF token on mutations.
-3. **Playwright tests** for the two-user share flow plus a seeded test database in CI.
-4. **Comments** anchored to quoted text (`documentId`, `userId`, `quote`, `position`), which is the next most valuable Docs feature after permissions.
+1. **Deploy to Vercel + Neon** and run the two-profile share test against the live URL.
+2. **Playwright tests** for signup → create → share → viewer read-only → export, so the UI is covered by CI instead of manual clicks.
+3. **Optimistic concurrency** (`revision` + `If-Match`) and per-IP rate limiting with a uniform lockout message.
+4. **Password reset / email verification** once an email provider is wired up.
 
 ## Video outline (3–5 min)
 
-- **0:00–0:30** — What it is; stack; deliberate cuts (collaboration, comments, history, real auth, attachments).
-- **0:30–2:30** — Demo: sign in as Alice, create/format/rename, refresh to show persistence, import a file, share with Bob as Editor and Carol as Viewer, switch users to show editor vs viewer vs no-access.
-- **2:30–3:30** — Decisions: HTML + sanitizer on both write paths, single server-side access gate, 404-not-403 for strangers, TipTap v3 StarterKit, mocked auth.
-- **3:30–4:30** — AI workflow: the Cache Components removal, the Vitest/`@types/node` conflict, the autosave lint rewrite, the corrected test assertion, and the false-positive smoke test.
-- **4:30–5:00** — Limits (last-write-wins, mock auth) and next steps (revisions, real auth, comments, Playwright).
+- **0:00–0:30** — What it is; stack; deliberate cuts (collaboration, comments, history, attachments).
+- **0:30–2:30** — Demo: sign in, create/format/rename, refresh to show persistence, import a file, share with Bob as Editor and Carol as Viewer, switch users to show editor vs viewer vs no-access, export Markdown, print.
+- **2:30–3:30** — Design: hashed session tokens, owner-only collaborator data, 404-not-403, generic auth errors with dummy-hash timing, non-enumerating share response.
+- **3:30–4:30** — AI workflow: the mock-auth cookie that was caught against the brief, the streaming-redirect finding, the CSP decision.
+- **4:30–5:00** — Limits and next steps.
 
 ## Resetting the demo database
 

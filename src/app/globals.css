@@ -148,3 +148,70 @@ body {
 .doc-content[contenteditable="false"] {
   caret-color: transparent;
 }
+
+/* ---------- Visible keyboard focus everywhere ------------------------------ */
+
+:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ---------- Print: document only, no app chrome ---------------------------- */
+
+@media print {
+  @page {
+    margin: 18mm 16mm;
+  }
+
+  html,
+  body {
+    height: auto;
+    background: #fff;
+    color: #000;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-canvas {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  .print-surface {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .doc-content {
+    min-height: 0;
+    font-size: 11.5pt;
+    line-height: 1.55;
+  }
+
+  .doc-content a {
+    color: #000;
+    text-decoration: underline;
+  }
+
+  .doc-content pre {
+    border: 1px solid #d1d5db;
+    background: #fff;
+    color: #000;
+  }
+
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 9pt;
+    color: #444;
+  }
+
+  .doc-content h1,
+  .doc-content h2,
+  .doc-content h3 {
+    break-after: avoid;
+  }
+}

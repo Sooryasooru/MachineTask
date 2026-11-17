@@ -62,6 +62,7 @@ export default function ShareDialog({
       });
       const body = (await response.json().catch(() => null)) as {
         shares?: ShareView[];
+        message?: string;
         error?: string;
       } | null;
 
@@ -70,9 +71,8 @@ export default function ShareDialog({
       }
 
       setShares(body.shares);
-      setNotice(
-        `Access granted to ${email.trim()} as ${roleLabel(role).toLowerCase()}.`,
-      );
+      // Deliberately generic: the API never confirms whether the email exists.
+      setNotice(body.message ?? "If that account exists, access has been granted.");
       setEmail("");
       router.refresh();
     } catch (cause) {
@@ -107,7 +107,7 @@ export default function ShareDialog({
       }
 
       setShares(body.shares);
-      setNotice(`${share.name} is now an ${roleLabel(nextRole).toLowerCase()}.`);
+      setNotice(`${share.name} is now ${roleLabel(nextRole)}.`);
       router.refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not change that role.");
@@ -325,8 +325,8 @@ export default function ShareDialog({
                 </button>
               </div>
               <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-                Editors can edit; viewers can read only. Demo users:
-                alice@ajaia.test, bob@ajaia.test, carol@ajaia.test.
+                Editors can edit; viewers can read only. Enter the email they
+                signed up with.
               </p>
             </form>
           </div>

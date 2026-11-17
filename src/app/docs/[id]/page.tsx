@@ -4,8 +4,9 @@ import AppHeader from "@/components/AppHeader";
 import DocumentEditor from "@/components/DocumentEditor";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getAccess } from "@/lib/documents";
-import type { ShareView } from "@/lib/types";
+import { getAccess, listShares } from "@/lib/documents";
+import { PUBLIC_USER_SELECT } from "@/lib/dto";
+import type { OwnerView, ShareView } from "@/lib/types";
 
 type DocumentPageProps = {
   params: Promise<{ id: string }>;
@@ -29,26 +30,25 @@ export default async function DocumentPage({ params }: DocumentPageProps) {
       id: true,
       title: true,
       content: true,
-      owner: { select: { id: true, name: true, email: true } },
-      shares: {
-        orderBy: { user: { name: "asc" } },
-        select: {
-          userId: true,
-          role: true,
-          user: { select: { name: true, email: true } },
-        },
-      },
+      updatedAt: true,
+      owner: { select: { id: true, name: true } },
     },
   });
 
   if (!document) notFound();
 
-  const shares: ShareView[] = document.shares.map((share) => ({
-    userId: share.userId,
-    name: share.user.name,
-    email: share.user.email,
-    role: share.role,
-  }));
+  // Collaborator emails and their roles are owner-only data.
+  let owner: OwnerView = document.owner;
+  let shares: ShareView[] = [];
+
+  if (access === "OWNER") {
+    const [account, collaborators] = await Promise.all([
+      db.user.findUnique({ where: { id: document.owner.id }, select: PUBLIC_USER_SELECT }),
+      listShares(document.id),
+    ]);
+    if (account) owner = { id: account.id, name: account.name, email: account.email };
+    shares = collaborators;
+  }
 
   return (
     <div className="min-h-screen">
@@ -57,8 +57,9 @@ export default async function DocumentPage({ params }: DocumentPageProps) {
         documentId={document.id}
         initialTitle={document.title}
         initialContent={document.content}
+        initialUpdatedAt={document.updatedAt.toISOString()}
         access={access}
-        owner={document.owner}
+        owner={owner}
         initialShares={shares}
       />
     </div>

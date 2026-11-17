@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { canEdit, canManageSharing, resolveAccess } from "./access";
+import {
+  canEdit,
+  canExport,
+  canManageSharing,
+  resolveAccess,
+} from "./access";
 
 const OWNER = "user-owner";
 const EDITOR = "user-editor";
@@ -57,5 +62,17 @@ describe("canManageSharing", () => {
     expect(canManageSharing("OWNER")).toBe(true);
     expect(canManageSharing("EDITOR")).toBe(false);
     expect(canManageSharing("VIEWER")).toBe(false);
+  });
+});
+
+describe("canExport", () => {
+  it("allows every role that can already read the document", () => {
+    expect(canExport("OWNER")).toBe(true);
+    expect(canExport("EDITOR")).toBe(true);
+    expect(canExport("VIEWER")).toBe(true);
+  });
+
+  it("rejects strangers with no access", () => {
+    expect(canExport(null)).toBe(false);
   });
 });

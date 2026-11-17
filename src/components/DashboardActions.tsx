@@ -4,18 +4,18 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
 import { IMPORT_ACCEPT, IMPORT_HINT, MAX_IMPORT_BYTES } from "@/lib/limits";
-import { AlertIcon, PlusIcon, UploadIcon } from "./icons";
+import { PlusIcon, UploadIcon } from "./icons";
+import { useToast } from "./ToastProvider";
 
 export default function DashboardActions() {
   const router = useRouter();
+  const { show } = useToast();
   const fileInput = useRef<HTMLInputElement>(null);
   const [creating, setCreating] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   async function createDocument() {
     setCreating(true);
-    setError(null);
 
     try {
       const response = await fetch("/api/documents", { method: "POST" });
@@ -30,8 +30,9 @@ export default function DashboardActions() {
 
       router.push(`/docs/${body.document.id}`);
     } catch (cause) {
-      setError(
+      show(
         cause instanceof Error ? cause.message : "Could not create the document.",
+        "error",
       );
       setCreating(false);
     }
@@ -41,10 +42,8 @@ export default function DashboardActions() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    setError(null);
-
     if (file.size > MAX_IMPORT_BYTES) {
-      setError("That file is larger than 2 MB. Try a smaller file.");
+      show("That file is larger than 2 MB. Try a smaller file.", "error");
       event.target.value = "";
       return;
     }
@@ -69,7 +68,10 @@ export default function DashboardActions() {
 
       router.push(`/docs/${body.id}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not import that file.");
+      show(
+        cause instanceof Error ? cause.message : "Could not import that file.",
+        "error",
+      );
       setUploading(false);
       event.target.value = "";
     }
@@ -109,16 +111,6 @@ export default function DashboardActions() {
       </div>
 
       <p className="mt-2 text-xs text-slate-500 sm:text-right">{IMPORT_HINT}</p>
-
-      {error ? (
-        <div
-          role="alert"
-          className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-        >
-          <AlertIcon className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      ) : null}
     </div>
   );
 }
