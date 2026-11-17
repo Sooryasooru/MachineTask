@@ -9,6 +9,13 @@ export type ShareView = {
   role: ShareRole;
 };
 
+export type OwnerView = {
+  id: string;
+  name: string;
+  /** Only present for the owner's own view; never sent to editors/viewers. */
+  email?: string;
+};
+
 export type ApiErrorBody = {
   error: string;
 };

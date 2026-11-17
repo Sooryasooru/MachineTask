@@ -1,37 +1,28 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { initials } from "@/lib/format";
-import { AlertIcon, ChevronRightIcon } from "./icons";
+import { AlertIcon } from "./icons";
 
-type DemoUser = {
-  id: string;
-  name: string;
-  email: string;
-};
-
-export default function LoginForm({
-  users,
-  next,
-}: {
-  users: DemoUser[];
-  next?: string;
-}) {
+export default function LoginForm({ next }: { next?: string }) {
   const router = useRouter();
-  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  async function signIn(user: DemoUser) {
-    setPendingId(user.id);
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
     setError(null);
 
     try {
       const response = await fetch("/api/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ userId: user.id }),
+        body: JSON.stringify({ email, password }),
       });
       const body = (await response.json().catch(() => null)) as {
         error?: string;
@@ -47,52 +38,76 @@ export default function LoginForm({
       router.refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not sign in.");
-      setPendingId(null);
+      setBusy(false);
     }
   }
 
   return (
-    <div className="mt-6">
+    <form onSubmit={submit} className="mt-5 space-y-4" noValidate>
       {error ? (
         <div
           role="alert"
-          className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
+          className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
         >
           <AlertIcon className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
       ) : null}
 
-      <div className="space-y-2">
-        {users.map((user) => {
-          const busy = pendingId === user.id;
-          return (
-            <button
-              key={user.id}
-              type="button"
-              onClick={() => signIn(user)}
-              disabled={pendingId !== null}
-              className="group flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50/40 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-[12px] font-semibold text-slate-700 ring-1 ring-inset ring-slate-200">
-                {initials(user.name)}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium text-slate-900">
-                  {user.name}
-                </span>
-                <span className="block truncate text-xs text-slate-500">
-                  {user.email}
-                </span>
-              </span>
-              <span className="text-xs font-medium text-blue-600">
-                {busy ? "Signing in…" : "Continue"}
-              </span>
-              <ChevronRightIcon className="h-4 w-4 text-slate-300 transition group-hover:text-blue-500" />
-            </button>
-          );
-        })}
+      <div>
+        <label htmlFor="email" className="text-xs font-medium text-slate-700">
+          Email
+        </label>
+        <input
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="you@example.com"
+          className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        />
       </div>
-    </div>
+
+      <div>
+        <label
+          htmlFor="password"
+          className="text-xs font-medium text-slate-700"
+        >
+          Password
+        </label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          required
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          placeholder="Your password"
+          className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        />
+      </div>
+
+      <button
+        type="submit"
+        disabled={busy}
+        className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {busy ? "Signing in…" : "Sign in"}
+      </button>
+
+      <p className="text-center text-xs text-slate-500">
+        New here?{" "}
+        <Link
+          href="/signup"
+          className="font-medium text-blue-700 underline underline-offset-2 hover:text-blue-800"
+        >
+          Create an account
+        </Link>
+      </p>
+    </form>
   );
 }

@@ -3,8 +3,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Neon: DATABASE_URL points at the pooled (pgbouncer) endpoint for the app,
+  // DIRECT_URL at the direct endpoint for migrations, which need a real session.
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -13,12 +16,28 @@ enum Role {
 }
 
 model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String
+  passwordHash   String
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  documents      Document[]
+  shares         Share[]
+  sessions       Session[]
+  createdAt      DateTime  @default(now())
+}
+
+model Session {
   id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  documents Document[]
-  shares    Share[]
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
   createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Document {

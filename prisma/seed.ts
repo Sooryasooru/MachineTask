@@ -1,8 +1,13 @@
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 import { sanitizeDocumentHtml } from "../src/lib/sanitize";
 
 const prisma = new PrismaClient();
+
+/** Must pass the policy in src/lib/password.ts (covered by a unit test). */
+const DEMO_PASSWORD = "Ajaia-Demo-2026!";
+const BCRYPT_COST = 12;
 
 const SEED_USERS = [
   { email: "alice@ajaia.test", name: "Alice" },
@@ -19,20 +24,30 @@ const WELCOME_CONTENT = sanitizeDocumentHtml(`
 <ul>
   <li>Rename this document by clicking the title.</li>
   <li>Open <strong>Share</strong> and invite Bob as an Editor or Carol as a Viewer.</li>
+  <li>Use <strong>Export</strong> to download Markdown or print this document.</li>
   <li>Import a .txt, .md or .docx file from the dashboard.</li>
 </ul>
 <h2>What is deliberately missing</h2>
-<p>Real-time collaboration, comments, version history, real authentication and file attachments are out of scope. The focus is a correct, server-enforced core: CRUD, HTML sanitization, sharing permissions and file import.</p>
+<p>Real-time collaboration, comments, version history and file attachments are out of scope. The focus is a correct, server-enforced core: password authentication with DB-backed sessions, CRUD, HTML sanitization, sharing permissions and file import.</p>
 `);
 
 async function main() {
   const seeded = new Map<string, string>();
 
   for (const user of SEED_USERS) {
+    // Idempotent: re-seeding restores the documented demo password and resets
+    // any lockout, without creating duplicate users or documents.
+    const passwordHash = await bcrypt.hash(DEMO_PASSWORD, BCRYPT_COST);
+
     const record = await prisma.user.upsert({
       where: { email: user.email },
-      update: { name: user.name },
-      create: user,
+      update: {
+        name: user.name,
+        passwordHash,
+        failedAttempts: 0,
+        lockedUntil: null,
+      },
+      create: { ...user, passwordHash },
       select: { id: true, email: true },
     });
     seeded.set(record.email, record.id);
@@ -74,7 +89,7 @@ async function main() {
   console.log(
     `Seeded ${counts[0]} users, ${counts[1]} documents, ${counts[2]} shares.`,
   );
-  console.log("Demo users:");
+  console.log(`Demo password for every seeded user: ${DEMO_PASSWORD}`);
   for (const user of SEED_USERS) console.log(`  ${user.name} <${user.email}>`);
 }
 

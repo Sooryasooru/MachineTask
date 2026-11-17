@@ -3,34 +3,30 @@ import "server-only";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { db } from "./db";
+import {
+  SESSION_COOKIE,
+  resolveSession,
+  type SessionUser,
+} from "./session";
+
+export { SESSION_COOKIE };
+export type { SessionUser };
 
 /**
- * Demo-only session. The cookie stores a seeded user id and is *not* a
- * credential: anyone can forge it. Real auth (OAuth or hashed passwords plus
- * signed sessions) is deliberately out of scope for this assignment.
+ * Reads the session token from the httpOnly cookie and resolves it against the
+ * Session table. A cookie containing a raw user id (the previous mock) no
+ * longer authenticates anyone.
  */
-export const SESSION_COOKIE = "ajaia_user";
-export const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
-
-export type SessionUser = {
-  id: string;
-  name: string;
-  email: string;
-};
-
-export async function getCurrentUser(): Promise<SessionUser | null> {
+export async function getSessionToken(): Promise<string | null> {
   const store = await cookies();
-  const userId = store.get(SESSION_COOKIE)?.value;
-  if (!userId) return null;
-
-  return db.user.findUnique({
-    where: { id: userId },
-    select: { id: true, name: true, email: true },
-  });
+  return store.get(SESSION_COOKIE)?.value ?? null;
 }
 
-/** For pages: send anonymous visitors to the demo login screen. */
+export async function getCurrentUser(): Promise<SessionUser | null> {
+  return resolveSession(await getSessionToken());
+}
+
+/** For pages: send anonymous visitors to the login screen, preserving the path. */
 export async function requireUser(nextPath?: string): Promise<SessionUser> {
   const user = await getCurrentUser();
   if (!user) {

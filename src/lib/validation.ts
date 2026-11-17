@@ -35,6 +35,28 @@ export const revokeShareSchema = z.object({
   userId: z.string().min(1),
 });
 
+export const emailSchema = z
+  .string()
+  .trim()
+  .min(1, "Enter your email address.")
+  .max(254, "That email address is too long.")
+  .email("Enter a valid email address.");
+
+/**
+ * Passwords are only bounded here; the policy lives in `password.ts` so the
+ * client checklist and the server check cannot drift apart.
+ */
 export const loginSchema = z.object({
-  userId: z.string().min(1),
+  email: emailSchema,
+  password: z.string().min(1, "Enter your password.").max(200),
+});
+
+export const signupSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Enter your name.")
+    .max(80, "Name must be 80 characters or fewer."),
+  email: emailSchema,
+  password: z.string().min(1, "Choose a password.").max(200),
 });
