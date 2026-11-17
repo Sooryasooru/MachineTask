@@ -33,3 +33,8 @@ export function canEdit(access: Access): boolean {
 export function canManageSharing(access: Access): boolean {
   return access === "OWNER";
 }
+
+/** Owners, editors and viewers may export; strangers have no access at all. */
+export function canExport(access: Access): boolean {
+  return access === "OWNER" || access === "EDITOR" || access === "VIEWER";
+}

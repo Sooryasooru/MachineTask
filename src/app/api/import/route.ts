@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { jsonError, unauthorized } from "@/lib/api";
+import { crossOrigin, jsonError, unauthorized } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/csrf";
 import { db } from "@/lib/db";
 import {
   convertFileToHtml,
   getExtension,
+  hasZipSignature,
   isSupportedExtension,
   MAX_IMPORT_BYTES,
   titleFromFilename,
@@ -15,6 +17,8 @@ import {
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  if (!isSameOrigin(request)) return crossOrigin();
+
   const user = await getCurrentUser();
   if (!user) return unauthorized();
 
@@ -46,9 +50,19 @@ export async function POST(request: Request) {
   let content: string;
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
+
+    // A .docx is a ZIP container; reject anything else before mammoth sees it.
+    if (extension === ".docx" && !hasZipSignature(buffer)) {
+      return jsonError(
+        400,
+        "That file isn't a valid .docx document (missing ZIP signature).",
+      );
+    }
+
     content = await convertFileToHtml(file.name, buffer);
-  } catch (error) {
-    console.error("Import failed", error);
+  } catch {
+    // No file contents, names or buffers in logs.
+    console.error("Import failed");
     return jsonError(
       422,
       "We couldn't read that file. Is it a valid .txt, .md or .docx document?",

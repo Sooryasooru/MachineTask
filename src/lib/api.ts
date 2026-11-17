@@ -22,6 +22,13 @@ export function unauthorized() {
   return jsonError(401, "You need to sign in to do that.");
 }
 
+export const CROSS_ORIGIN_MESSAGE = "Cross-origin request rejected.";
+
+/** Every cookie-authenticated mutation answers this when Origin doesn't match Host. */
+export function crossOrigin() {
+  return jsonError(403, CROSS_ORIGIN_MESSAGE);
+}
+
 export function notFoundDocument() {
   return jsonError(404, "Document not found.");
 }

@@ -57,6 +57,23 @@ export async function markdownToHtml(markdown: string): Promise<string> {
   return sanitizeDocumentHtml(html);
 }
 
+/**
+ * ZIP local-file, empty-archive and spanned-archive signatures. A real .docx is
+ * a ZIP container, so the extension check alone is not enough: a renamed
+ * executable should be rejected before it reaches mammoth.
+ */
+const ZIP_SIGNATURES: readonly (readonly number[])[] = [
+  [0x50, 0x4b, 0x03, 0x04],
+  [0x50, 0x4b, 0x05, 0x06],
+  [0x50, 0x4b, 0x07, 0x08],
+];
+
+export function hasZipSignature(buffer: Uint8Array): boolean {
+  return ZIP_SIGNATURES.some((signature) =>
+    signature.every((byte, index) => buffer[index] === byte),
+  );
+}
+
 export async function convertFileToHtml(
   filename: string,
   buffer: Buffer,
@@ -70,6 +87,10 @@ export async function convertFileToHtml(
   }
 
   if (extension === ".docx") {
+    if (!hasZipSignature(buffer)) {
+      throw new Error("That .docx file is not a valid ZIP archive.");
+    }
+
     const { value } = await mammoth.convertToHtml({ buffer });
     return sanitizeDocumentHtml(value);
   }

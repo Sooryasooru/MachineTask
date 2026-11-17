@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
+  crossOrigin,
   firstIssue,
   jsonError,
   notFoundDocument,
@@ -9,13 +10,26 @@ import {
 } from "@/lib/api";
 import { canManageSharing } from "@/lib/access";
 import { getCurrentUser } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/csrf";
 import { db } from "@/lib/db";
 import { getAccess, listShares } from "@/lib/documents";
+import {
+  SELF_SHARE_MESSAGE,
+  SHARE_GRANTED_MESSAGE,
+  grantShare,
+} from "@/lib/sharing";
 import { revokeShareSchema, shareRequestSchema } from "@/lib/validation";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+/**
+ * Owner-only invite / role change. The response is identical whether or not the
+ * email has an account, so this endpoint cannot be used to enumerate users.
+ * The collaborator list in the same response is what keeps the dialog accurate.
+ */
 export async function POST(request: Request, context: RouteContext) {
+  if (!isSameOrigin(request)) return crossOrigin();
+
   const user = await getCurrentUser();
   if (!user) return unauthorized();
 
@@ -26,40 +40,29 @@ export async function POST(request: Request, context: RouteContext) {
     return jsonError(403, "Only the owner can manage sharing.");
   }
 
-  const body = await readJson(request);
-  const parsed = shareRequestSchema.safeParse(body);
+  const parsed = shareRequestSchema.safeParse(await readJson(request));
   if (!parsed.success) return jsonError(400, firstIssue(parsed.error));
 
-  const email = parsed.data.email.toLowerCase();
-
-  if (email === user.email.toLowerCase()) {
-    return jsonError(400, "You can't share a document with yourself.");
+  if (parsed.data.email.trim().toLowerCase() === user.email.toLowerCase()) {
+    return jsonError(400, SELF_SHARE_MESSAGE);
   }
 
-  const invitee = await db.user.findUnique({
-    where: { email },
-    select: { id: true },
+  await grantShare({
+    documentId: id,
+    callerEmail: user.email,
+    email: parsed.data.email,
+    role: parsed.data.role,
   });
 
-  if (!invitee) {
-    return jsonError(404, "No user with that email.");
-  }
-
-  // Re-sharing an existing collaborator updates their role (upsert).
-  await db.share.upsert({
-    where: { documentId_userId: { documentId: id, userId: invitee.id } },
-    update: { role: parsed.data.role },
-    create: {
-      documentId: id,
-      userId: invitee.id,
-      role: parsed.data.role,
-    },
+  return NextResponse.json({
+    message: SHARE_GRANTED_MESSAGE,
+    shares: await listShares(id),
   });
-
-  return NextResponse.json({ shares: await listShares(id) });
 }
 
 export async function DELETE(request: Request, context: RouteContext) {
+  if (!isSameOrigin(request)) return crossOrigin();
+
   const user = await getCurrentUser();
   if (!user) return unauthorized();
 
@@ -70,8 +73,7 @@ export async function DELETE(request: Request, context: RouteContext) {
     return jsonError(403, "Only the owner can manage sharing.");
   }
 
-  const body = await readJson(request);
-  const parsed = revokeShareSchema.safeParse(body);
+  const parsed = revokeShareSchema.safeParse(await readJson(request));
   if (!parsed.success) return jsonError(400, firstIssue(parsed.error));
 
   const removed = await db.share.deleteMany({

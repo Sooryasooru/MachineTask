@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { unauthorized } from "@/lib/api";
+import { crossOrigin, unauthorized } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/csrf";
 import { db } from "@/lib/db";
 
 export async function GET() {
@@ -24,7 +25,8 @@ export async function GET() {
             id: true,
             title: true,
             updatedAt: true,
-            owner: { select: { id: true, name: true, email: true } },
+            // Editors/viewers only learn the owner's display name.
+            owner: { select: { name: true } },
           },
         },
       },
@@ -40,7 +42,9 @@ export async function GET() {
   });
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+  if (!isSameOrigin(request)) return crossOrigin();
+
   const user = await getCurrentUser();
   if (!user) return unauthorized();
 

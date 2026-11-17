@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
+  crossOrigin,
   firstIssue,
   jsonError,
   notFoundDocument,
@@ -9,8 +10,10 @@ import {
 } from "@/lib/api";
 import { canEdit, canManageSharing } from "@/lib/access";
 import { getCurrentUser } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/csrf";
 import { db } from "@/lib/db";
-import { getAccess } from "@/lib/documents";
+import { getAccess, listShares } from "@/lib/documents";
+import { PUBLIC_USER_SELECT } from "@/lib/dto";
 import { sanitizeDocumentHtml } from "@/lib/sanitize";
 import { updateDocumentSchema } from "@/lib/validation";
 
@@ -32,35 +35,33 @@ export async function GET(_request: Request, context: RouteContext) {
       title: true,
       content: true,
       updatedAt: true,
-      owner: { select: { id: true, name: true, email: true } },
-      shares: {
-        orderBy: { user: { name: "asc" } },
-        select: {
-          userId: true,
-          role: true,
-          user: { select: { name: true, email: true } },
-        },
-      },
+      owner: { select: { id: true, name: true } },
     },
   });
 
   if (!document) return notFoundDocument();
 
+  // Only the owner sees collaborator emails; editors and viewers get the
+  // owner's display name and nothing about anyone else.
+  if (access === "OWNER") {
+    const [shares, owner] = await Promise.all([
+      listShares(id),
+      db.user.findUnique({ where: { id: document.owner.id }, select: PUBLIC_USER_SELECT }),
+    ]);
+
+    return NextResponse.json({
+      document: { ...document, owner: owner ?? document.owner, access, shares },
+    });
+  }
+
   return NextResponse.json({
-    document: {
-      ...document,
-      access,
-      shares: document.shares.map((share) => ({
-        userId: share.userId,
-        name: share.user.name,
-        email: share.user.email,
-        role: share.role,
-      })),
-    },
+    document: { ...document, access, shares: [] },
   });
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
+  if (!isSameOrigin(request)) return crossOrigin();
+
   const user = await getCurrentUser();
   if (!user) return unauthorized();
 
@@ -71,8 +72,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     return jsonError(403, "You have view-only access to this document.");
   }
 
-  const body = await readJson(request);
-  const parsed = updateDocumentSchema.safeParse(body);
+  const parsed = updateDocumentSchema.safeParse(await readJson(request));
   if (!parsed.success) return jsonError(400, firstIssue(parsed.error));
 
   const data: { title?: string; content?: string } = {};
@@ -91,7 +91,9 @@ export async function PATCH(request: Request, context: RouteContext) {
   return NextResponse.json({ document });
 }
 
-export async function DELETE(_request: Request, context: RouteContext) {
+export async function DELETE(request: Request, context: RouteContext) {
+  if (!isSameOrigin(request)) return crossOrigin();
+
   const user = await getCurrentUser();
   if (!user) return unauthorized();
 

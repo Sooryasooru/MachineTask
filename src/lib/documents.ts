@@ -4,7 +4,8 @@ import type { ShareView } from "./types";
 
 /**
  * The single access check every document route/page funnels through.
- * Returns null when the document is missing *or* the user has no access.
+ * Returns null when the document is missing *or* the user has no access, so
+ * callers can answer 404 for both.
  */
 export async function getAccess(
   userId: string,
@@ -22,6 +23,10 @@ export async function getAccess(
   return resolveAccess(document.ownerId, document.shares, userId);
 }
 
+/**
+ * Owner-facing collaborator list. Emails are included because only the owner
+ * may call this (the share routes and the owner's document page).
+ */
 export async function listShares(documentId: string): Promise<ShareView[]> {
   const shares = await db.share.findMany({
     where: { documentId },
